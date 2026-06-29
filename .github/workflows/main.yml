@@ -1,9 +1,7 @@
 name: Deploy Backend Despacho
-
 on:
   push:
     branches: [ "main" ]
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -19,6 +17,7 @@ jobs:
           cache: 'maven'
 
       - name: Compilar con Maven
+        working-directory: Springboot-API-REST-DESPACHO
         run: chmod +x mvnw && ./mvnw clean package -DskipTests
 
       - name: Subir JAR a S3
@@ -27,6 +26,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+        working-directory: Springboot-API-REST-DESPACHO
         run: aws s3 cp target/*.jar s3://innovatech-deploy-bucket-2026/backend-despacho.jar
 
       - name: Desplegar en EC2 via SSM
@@ -35,8 +35,21 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+          INSTANCE_ID: ${{ secrets.INSTANCE_ID }}
         run: |
+          if [ -z "$INSTANCE_ID" ]; then
+            echo "ERROR: el secret INSTANCE_ID está vacío o no existe."
+            exit 1
+          fi
+
+          COMMANDS='{"commands":[
+            "aws s3 cp s3://innovatech-deploy-bucket-2026/backend-despacho.jar /home/ssm-user/app/despacho.jar",
+            "pkill -f despacho.jar || true",
+            "sleep 2",
+            "nohup java -jar /home/ssm-user/app/despacho.jar > /home/ssm-user/app/despacho.log 2>&1 &"
+          ]}'
+
           aws ssm send-command \
-            --instance-ids "${{ secrets.INSTANCE_ID }}" \
+            --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters '{"commands":["pkill -f despacho.jar || true", "nohup java -jar /home/ssm-user/app/despacho.jar > /home/ssm-user/app/despacho.log 2>&1 &"]}'
+            --parameters "$COMMANDS"

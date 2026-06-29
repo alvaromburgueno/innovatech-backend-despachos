@@ -1,0 +1,50 @@
+name: Deploy Backend Despachos to EC2
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout del código
+      uses: actions/checkout@v4
+
+    - name: Configurar JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'maven'
+
+    - name: Dar permisos de ejecución al Maven Wrapper
+      run: chmod +x mvnw
+
+    - name: Compilar y empaquetar con Maven
+      run: ./mvnw clean package -DskipTests
+
+    - name: Copiar JAR a la EC2
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 22
+        source: "target/*.jar"
+        target: "/home/ssm-user/app/despachos/"
+        strip_components: 1
+
+    # Opcional pero recomendado: Comando para ejecutar/reiniciar la app en segundo plano
+    - name: Ejecutar la aplicación en la EC2
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 22
+        script: |
+          cd /home/ssm-user/app/despachos/
+          pkill -f 'despachos.*.jar' || true
+          nohup java -jar *.jar > app.log 2>&1 &
